@@ -66,6 +66,30 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         _, new = await self.enroll('other')
         self.assertGreater(json.loads(new)['port'], identity['port'])
 
+    async def test_existing_herdr_workspace_and_input_methods_forward_unchanged(self):
+        _, data = await self.enroll()
+        identity = json.loads(data)
+        ws = await self.http.ws_connect(self.url + '/v1/machines/node/control', headers=self.auth(identity['token']))
+        requests = [
+            ('workspace.create', {'cwd': "/repo O'Brien", 'label': 'visible', 'focus': False, 'env': {'PI_CODING_AGENT_DIR': '/worker/profile'}}),
+            ('workspace.close', {'workspace_id': 'w2'}),
+            ('agent.send_keys', {'target': 'w2:p1', 'keys': ['esc']}),
+            ('pane.send_input', {'pane_id': 'w2:p1', 'text': "O'Brien; $(not-a-shell)", 'keys': ['Enter']}),
+            ('pane.process_info', {'pane_id': 'w2:p1'}),
+        ]
+        async def node():
+            for method, params in requests:
+                request = await ws.receive_json()
+                self.assertEqual((request['method'], request['params']), (method, params))
+                await ws.send_json({'id': request['id'], 'response': {'result': {'native': params}}})
+        task = asyncio.create_task(node())
+        for method, params in requests:
+            async with self.http.post(self.url + '/v1/machines/node/rpc', headers=self.auth(self.client), json={'method': method, 'params': params}) as r:
+                self.assertEqual(r.status, 200)
+                self.assertEqual(await r.json(), {'result': {'native': params}})
+        await task
+        await ws.close()
+
     async def test_offline_and_forbidden(self):
         for method, status in [('ping', 503), ('server.stop', 400), ('worktree.create', 400)]:
             async with self.http.post(self.url + '/v1/machines/node/rpc', headers=self.auth(self.client), json={'method': method}) as r:

@@ -183,13 +183,23 @@ Basic client config: `{"url":"https://coordinator.example:9840"}` (optionally
 nix run -- --config /etc/drover/client.json list
 nix run -- --config /etc/drover/client.json rpc machine-a ping
 nix run -- --config /etc/drover/client.json rpc machine-a workspace.list
-nix run -- --config /etc/drover/client.json rpc machine-a agent.prompt '{"agent_id":"w1:p1","prompt":"Review changes"}'
+nix run -- --config /etc/drover/client.json rpc machine-a agent.prompt '{"target":"w1:p1","text":"Review changes"}'
 ```
 
 Parameters are Herdr's native JSON API parameters; consult the **pinned**
 `herdr api schema --json`. Drover's allowlist includes agent start/prompt/read,
-workspace/tab/pane inspection, and ping/snapshot. It excludes arbitrary shell,
-server stop, plugin installation, event subscriptions, and worktree operations.
+workspace/tab/pane inspection, and ping/snapshot. It also forwards the existing
+Herdr 0.9.0/protocol 22 `workspace.create`, `workspace.close`, `agent.send_keys`,
+`pane.send_input`, and `pane.process_info` APIs. Schemas are pinned in upstream
+`src/api/schema/{agents,workspaces,panes}.rs` at
+`b99002ac99b09e00b4ca692436cb15a6b0d676f1`. It excludes server stop, plugin
+installation, event subscriptions, and worktree operations.
+
+**This allowlist is not a shell sandbox.** Workspace environment and terminal
+input, as well as the native SSH endpoint, grant arbitrary execution at the
+effective authority of the enrolled Unix account, including its existing sudo,
+container, filesystem and network powers. No Familiar job semantics, settlement,
+ledger, or callback route are added to Drover.
 Replies preserve Herdr's structured result/error. Frames/bodies are bounded at
 1 MiB; at most 128 correlated requests may be outstanding. RPC timeout is 30
 seconds; disconnect/timeout means **outcome unknown**, never automatic retry,

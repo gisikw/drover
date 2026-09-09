@@ -20,7 +20,7 @@ import tempfile
 from aiohttp import web, ClientSession, ClientTimeout, TCPConnector, WSMsgType
 
 LIMIT = 1024 * 1024
-METHODS = frozenset('ping session.snapshot workspace.list workspace.get tab.list tab.get pane.list pane.get pane.read agent.list agent.get agent.read agent.prompt agent.start agent.rename'.split())
+METHODS = frozenset('ping session.snapshot workspace.list workspace.get workspace.create workspace.close tab.list tab.get pane.list pane.get pane.read pane.send_input pane.process_info agent.list agent.get agent.read agent.prompt agent.start agent.rename agent.send_keys'.split())
 
 
 def digest(value):
