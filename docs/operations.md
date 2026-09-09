@@ -200,6 +200,17 @@ input, as well as the native SSH endpoint, grant arbitrary execution at the
 effective authority of the enrolled Unix account, including its existing sudo,
 container, filesystem and network powers. No Familiar job semantics, settlement,
 ledger, or callback route are added to Drover.
+RPC callers may pin the catalog enrollment generation with the HTTP header
+`If-Match: "<port>"`, where `port` is the never-reused port from enrollment.
+The coordinator verifies that the registry row still matches the authenticated
+live WebSocket and checks this precondition before forwarding. Mismatch returns
+412 without delivery; successful replies acknowledge the same value in `ETag`.
+Clients requiring identity fencing must require that acknowledgment on their
+read-only ping before sending mutations (old coordinators lack it). Revocation
+and re-enrollment of a name cannot redirect a fenced request to the replacement.
+This is generic machine routing, not an agent-job protocol. Header-less legacy
+clients retain their existing behavior.
+
 Replies preserve Herdr's structured result/error. Frames/bodies are bounded at
 1 MiB; at most 128 correlated requests may be outstanding. RPC timeout is 30
 seconds; disconnect/timeout means **outcome unknown**, never automatic retry,

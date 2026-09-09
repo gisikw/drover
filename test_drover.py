@@ -90,6 +90,32 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await task
         await ws.close()
 
+    async def test_rpc_enrollment_generation_fence(self):
+        _, data = await self.enroll()
+        first = json.loads(data)
+        async with self.http.delete(self.url + '/v1/machines/node', headers=self.auth(self.client)) as r:
+            self.assertEqual(r.status, 200)
+        _, data = await self.enroll()
+        current = json.loads(data)
+        self.assertNotEqual(first['port'], current['port'])
+        ws = await self.http.ws_connect(self.url + '/v1/machines/node/control', headers=self.auth(current['token']))
+        payload = {'method': 'agent.prompt', 'params': {'target': 'w1:p1', 'text': 'do not deliver to replacement'}}
+        headers = dict(self.auth(self.client), **{'If-Match': json.dumps(str(first['port']))})
+        async with self.http.post(self.url + '/v1/machines/node/rpc', headers=headers, json=payload) as r:
+            self.assertEqual(r.status, 412)
+        with self.assertRaises(asyncio.TimeoutError):
+            await asyncio.wait_for(ws.receive_json(), 0.03)
+        async def reply():
+            req = await ws.receive_json()
+            await ws.send_json({'id': req['id'], 'response': {'result': {'ok': True}}})
+        task = asyncio.create_task(reply())
+        headers['If-Match'] = json.dumps(str(current['port']))
+        async with self.http.post(self.url + '/v1/machines/node/rpc', headers=headers, json=payload) as r:
+            self.assertEqual(r.status, 200)
+            self.assertEqual(r.headers['ETag'], headers['If-Match'])
+        await task
+        await ws.close()
+
     async def test_offline_and_forbidden(self):
         for method, status in [('ping', 503), ('server.stop', 400), ('worktree.create', 400)]:
             async with self.http.post(self.url + '/v1/machines/node/rpc', headers=self.auth(self.client), json={'method': method}) as r:

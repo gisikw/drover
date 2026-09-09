@@ -60,6 +60,7 @@ class Coordinator:
             self.db.commit()
         self.first_port = first_port
         self.connections = {}
+        self.connection_tokens = {}
         self.pending = {}
 
     def auth(self, request, token):
@@ -114,7 +115,13 @@ class Coordinator:
             raise web.HTTPConflict(text='already connected')
         ws = web.WebSocketResponse(heartbeat=15, max_msg_size=LIMIT)
         await ws.prepare(request)
+        # Enrollment may have changed while the WebSocket handshake awaited I/O.
+        current = self.db.execute('SELECT token FROM machines WHERE name=?', (name,)).fetchone()
+        if not current or current[0] != row[0] or name in self.connections:
+            await ws.close()
+            return ws
         self.connections[name] = ws
+        self.connection_tokens[name] = row[0]
         print('online:', name, flush=True)
         try:
             async for msg in ws:
@@ -124,7 +131,9 @@ class Coordinator:
                     if future and not future.done():
                         future.set_result(data.get('response'))
         finally:
-            self.connections.pop(name, None)
+            if self.connections.get(name) is ws:
+                self.connections.pop(name, None)
+                self.connection_tokens.pop(name, None)
             for (node, _), future in list(self.pending.items()):
                 if node == name and not future.done():
                     future.set_exception(ConnectionError('node disconnected; outcome unknown'))
@@ -136,8 +145,14 @@ class Coordinator:
         data = validate_rpc(await request.json())
         name = request.match_info['name']
         ws = self.connections.get(name)
-        if ws is None:
+        row = self.db.execute('SELECT port,token FROM machines WHERE name=?', (name,)).fetchone()
+        if ws is None or not row or self.connection_tokens.get(name) != row[1]:
             raise web.HTTPServiceUnavailable(text='offline')
+        # The never-reused enrollment port is a route generation, not a job ID.
+        # Check and capture the socket without an await between identity and send.
+        etag = '"' + str(row[0]) + '"'
+        if request.headers.get('If-Match', etag) != etag:
+            raise web.HTTPPreconditionFailed(text='enrollment changed; not forwarded')
         if len(self.pending) >= 128:
             raise web.HTTPTooManyRequests()
         rid = secrets.token_hex(16)
@@ -145,7 +160,7 @@ class Coordinator:
         self.pending[name, rid] = future
         try:
             await ws.send_json(dict(id=rid, **data))
-            return web.json_response(await asyncio.wait_for(future, 30))
+            return web.json_response(await asyncio.wait_for(future, 30), headers={'ETag': etag})
         except (TimeoutError, ConnectionError):
             raise web.HTTPGatewayTimeout(text='outcome unknown; not retried')
         finally:
