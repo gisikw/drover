@@ -1,5 +1,22 @@
 # Drover
 
+**Working single-operator MVP:** [build, configuration, deployment and security](docs/operations.md) · [real Azula/O’Brien validation](docs/validation.md).
+
+```sh
+nix build
+nix develop -c python -m unittest -v
+nix run -- --config /etc/drover/coordinator.json coordinator
+nix run -- --config /etc/drover/node.json serve
+nix run -- --config /etc/drover/client.json list
+nix run -- --config /etc/drover/client.json rpc machine-a ping
+nix run -- --config /etc/drover/client.json client
+```
+
+The sections below define the architecture; the operations guide documents the
+implemented JSON configuration and refined command names. The control listener
+(default `127.0.0.1:9840`) and system OpenSSH rendezvous listener (default
+`127.0.0.1:9841`) are independently configurable. No transport requires 443.
+
 Drover is a self-hosted coordination plane for a fleet of [Herdr](https://herdr.dev) servers.
 
 It lets machines register themselves with one coordinator, makes outbound-only machines addressable through stable reverse-SSH routes and structured RPC, and starts a native Herdr client connected to every authorized machine. The coordinator is both the registry and the rendezvous/jumpbox; clients and servers require no direct route to one another.
@@ -112,7 +129,8 @@ drover client
 2. retrieves every machine visible to the caller;
 3. reconciles stable SSH aliases and Herdr saved-machine profiles;
 4. starts the native Herdr client;
-5. keeps machine registrations synchronized while it runs.
+5. delegates independent endpoint reconnects to native Herdr. The MVP reconciles
+   registrations at launch; continuous catalog reconciliation remains follow-up.
 
 Herdr owns the resulting multi-machine UI, including the combined agent list, machine-scoped navigation, terminal rendering, notifications, cached offline state, and independent reconnects.
 
@@ -183,7 +201,7 @@ Clients reach that listener through a separately authenticated, constrained coor
 ```sshconfig
 Host drover-coordinator
   HostName coordinator.example
-  Port 443
+  Port 9841
   User drover-client
 
 Host drover-azula
@@ -371,4 +389,17 @@ A practical implementation order is:
 
 ## Status
 
-Design sketch. No implementation yet.
+Implemented in Python/asyncio with SQLite, authenticated TLS/WebSocket control,
+allowlisted native Unix-socket RPC, system OpenSSH reverse-tunnel supervision,
+operator-installed constrained rendezvous authorization, and native Herdr 0.9.0
+profile/client delegation. Nix pins the complete toolchain, including Herdr.
+
+Validated O’Brien → Azula registration, RPC, reverse forwarding/ProxyJump, native
+saved-machine preparation and client endpoint handshakes, transport reconnect,
+and negative SSH authorization. See the [evidence and remaining gaps](docs/validation.md).
+
+Herdr 0.9 saved-machine federation requires its detached daemon: Drover starts
+it through the native `remote-client-bridge` bootstrap with EOF, or adopts an
+already compatible socket. It refuses to replace running incompatible servers.
+SSH authorization installation and two-plane revocation remain explicit operator
+actions; there are no managed service units or Golem semantics in Drover.

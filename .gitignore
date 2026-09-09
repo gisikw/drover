@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+result
+result-*
+.env
+.env.*
+state/
+.runtime/
+*.sqlite*
+*.pem
+*.key
+identity.json
